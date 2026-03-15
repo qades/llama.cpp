@@ -2278,6 +2278,9 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                         || t.first == "[EOT]" // Kimi-K2
                         || t.first == "<｜end▁of▁sentence｜>" // DeepSeek
                         || t.first == "<end_of_utterance>" // smoldocling
+                        || t.first == "<eod>"              // Yuan
+                        || t.first == "<|end_of_sentence|>" // Yuan
+                        || t.first == "<sep>"              // Yuan
                    ) {
                     special_eot_id = t.second;
                     if ((attr & LLAMA_TOKEN_ATTR_CONTROL) == 0) {
@@ -2480,6 +2483,9 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                     || t.first == "[EOS]" // Kimi-K2
                     || t.first == "<|end_of_text|>"
                     || t.first == "<end_of_utterance>" // smoldocling
+                    || t.first == "<eod>"              // Yuan
+                    || t.first == "<|end_of_sentence|>" // Yuan
+                    || t.first == "<sep>"              // Yuan
                ) {
                 special_eog_ids.insert(t.second);
                 if ((attr & LLAMA_TOKEN_ATTR_CONTROL) == 0) {
