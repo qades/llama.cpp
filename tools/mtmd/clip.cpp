@@ -405,6 +405,11 @@ ggml_tensor * clip_graph::build_vit(
                 cb(Kcur, "Kcur_pos", il);
             }
 
+            if (proj_type == PROJECTOR_TYPE_GEMMA4V) {
+                Vcur = ggml_rms_norm(ctx0, Vcur, eps);
+                cb(Vcur, "Vcur_normed", il);
+            }
+
             cur = build_attn(layer.o_w, layer.o_b,
                 Qcur, Kcur, Vcur, nullptr, kq_scale, il);
             cb(cur, "attn_out", il);
@@ -807,6 +812,10 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
         case PROJECTOR_TYPE_GEMMA3NV:
             {
                 builder = std::make_unique<clip_graph_mobilenetv5>(ctx, img);
+            } break;
+        case PROJECTOR_TYPE_GEMMA4V:
+            {
+                builder = std::make_unique<clip_graph_gemma4v>(ctx, img);
             } break;
         case PROJECTOR_TYPE_PIXTRAL:
         case PROJECTOR_TYPE_LIGHTONOCR:
@@ -1277,6 +1286,16 @@ struct clip_model_loader {
                         hparams.set_limit_image_tokens(8, 4096);
                         hparams.set_warmup_n_tokens(46*46); // avoid OOM on warmup
                     } break;
+                case PROJECTOR_TYPE_GEMMA4V:
+                    {
+                        hparams.rope_theta = 100.0f;
+                        hparams.n_merge = 3; // pooling_kernel_size
+                        hparams.image_resize_algo = RESIZE_ALGO_BILINEAR;
+                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.n_merge, false);
+                        // the model performs quite poor with small images, we need to bump minimum image tokens to 40 to avoid that
+                        hparams.set_limit_image_tokens(252, 280);
+                        hparams.set_warmup_n_tokens(256); // avoid OOM on warmup
+                    } break;
                 case PROJECTOR_TYPE_LLAMA4:
                     {
                         hparams.rope_theta = 10000.0f;
@@ -1651,6 +1670,39 @@ struct clip_model_loader {
                 {
                     model.mm_input_proj_w = get_tensor(TN_MM_INP_PROJ);
                     model.mm_soft_emb_norm_w = get_tensor(TN_MM_SOFT_EMB_N);
+                } break;
+            case PROJECTOR_TYPE_GEMMA4V:
+                {
+                    model.mm_input_proj_w = get_tensor(TN_MM_INP_PROJ);
+                    model.std_bias  = get_tensor(TN_STD_BIAS,  false);
+                    model.std_scale = get_tensor(TN_STD_SCALE, false);
+                    // load scalar for Gemma4ClippableLinear
+                    for (auto * tensor : tensors_to_load) {
+                        std::string name = tensor->name;
+                        if (string_ends_with(name, ".weight")) {
+                            std::string name_inp_max = name;
+                            std::string name_inp_min = name;
+                            std::string name_out_max = name;
+                            std::string name_out_min = name;
+                            string_replace_all(name_inp_max, ".weight", ".input_max");
+                            string_replace_all(name_inp_min, ".weight", ".input_min");
+                            string_replace_all(name_out_max, ".weight", ".output_max");
+                            string_replace_all(name_out_min, ".weight", ".output_min");
+
+                            // check if all clamp keys exist
+                            int idx_inp_max = gguf_find_key(ctx_gguf.get(), name_inp_max.c_str());
+                            int idx_inp_min = gguf_find_key(ctx_gguf.get(), name_inp_min.c_str());
+                            int idx_out_max = gguf_find_key(ctx_gguf.get(), name_out_max.c_str());
+                            int idx_out_min = gguf_find_key(ctx_gguf.get(), name_out_min.c_str());
+                            if (idx_inp_max >= 0 && idx_inp_min >= 0 && idx_out_max >= 0 && idx_out_min >= 0) {
+                                float inp_max = gguf_get_val_f32(ctx_gguf.get(), idx_inp_max);
+                                float inp_min = gguf_get_val_f32(ctx_gguf.get(), idx_inp_min);
+                                float out_max = gguf_get_val_f32(ctx_gguf.get(), idx_out_max);
+                                float out_min = gguf_get_val_f32(ctx_gguf.get(), idx_out_min);
+                                model.clamp_info_map[name] = {inp_max, inp_min, out_max, out_min};
+                            }
+                        }
+                    }
                 } break;
             case PROJECTOR_TYPE_GEMMA3NV:
                 {
@@ -2257,7 +2309,8 @@ struct clip_init_result clip_init(const char * fname, struct clip_context_params
 
             // TODO: we don't support audio for Gemma 3N, but GGUF contains audio tensors
             // we can remove this check when we implement audio support for Gemma 3N
-            skip_audio = ctx_vision->model.proj_type == PROJECTOR_TYPE_GEMMA3NV;
+            skip_audio = ctx_vision->model.proj_type == PROJECTOR_TYPE_GEMMA3NV
+                || ctx_vision->model.proj_type == PROJECTOR_TYPE_GEMMA4V;
         }
 
         if (loader.has_audio && !skip_audio) {
@@ -3221,6 +3274,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
             } break;
         case PROJECTOR_TYPE_GLM_EDGE:
         case PROJECTOR_TYPE_GEMMA3:
+        case PROJECTOR_TYPE_GEMMA4V:
         case PROJECTOR_TYPE_NEMOTRON_V2_VL:
             {
                 clip_image_u8 resized_image;
@@ -3630,6 +3684,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
                 n_patches = x_patch * y_patch;
             } break;
         case PROJECTOR_TYPE_GEMMA3:
+        case PROJECTOR_TYPE_GEMMA4V:
         case PROJECTOR_TYPE_IDEFICS3:
         case PROJECTOR_TYPE_INTERNVL:
         case PROJECTOR_TYPE_NEMOTRON_V2_VL:
@@ -4071,6 +4126,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
             } break;
         case PROJECTOR_TYPE_GEMMA3:
         case PROJECTOR_TYPE_GEMMA3NV:
+        case PROJECTOR_TYPE_GEMMA4V:
         case PROJECTOR_TYPE_IDEFICS3:
         case PROJECTOR_TYPE_INTERNVL:
         case PROJECTOR_TYPE_NEMOTRON_V2_VL:
@@ -4233,6 +4289,8 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
         case PROJECTOR_TYPE_GEMMA3:
         case PROJECTOR_TYPE_GEMMA3NV:
             return ctx->model.mm_input_proj_w->ne[0];
+        case PROJECTOR_TYPE_GEMMA4V:
+            return ctx->model.mm_input_proj_w->ne[1];
         case PROJECTOR_TYPE_IDEFICS3:
             return ctx->model.projection->ne[1];
         case PROJECTOR_TYPE_ULTRAVOX:

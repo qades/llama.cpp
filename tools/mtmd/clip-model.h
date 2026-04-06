@@ -37,6 +37,7 @@ enum resize_algo {
 
 struct clip_hparams {
     int32_t image_size = 0;
+    int32_t image_crop_resolution = 0; // for Yuan models
     int32_t patch_size = 0;
     int32_t n_embd = 0;
     int32_t n_ff = 0;
@@ -447,6 +448,9 @@ struct clip_model {
     std::array<ggml_tensor *, 7> pre_encode_conv_X_b = {nullptr};
     ggml_tensor * pre_encode_out_w = nullptr;
     ggml_tensor * pre_encode_out_b = nullptr;
+
+    // idefics3, glm4v
+    ggml_tensor * projection = nullptr;
 
     // gemma4
     ggml_tensor * std_bias = nullptr;
