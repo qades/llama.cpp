@@ -1,0 +1,41 @@
+{
+  "version": "2.10.0-qades",
+  "domains": [
+    "llm",
+    "embedding"
+  ],
+  "engine": "llama.cpp",
+  "target_libraries": [
+    {
+      "name": "llm_engine_vulkan.node",
+      "type": "llm_engine",
+      "version": "0.1.0"
+    },
+    {
+      "name": "liblmstudio_bindings_vulkan.node",
+      "type": "liblmstudio",
+      "version": "0.2.0"
+    }
+  ],
+  "platform": "linux",
+  "cpu": {
+    "architecture": "x86_64",
+    "instruction_set_extensions": [
+      "AVX2"
+    ]
+  },
+  "gpu": {
+    "framework": "Vulkan"
+  },
+  "supported_model_formats": [
+    "gguf"
+  ],
+  "manifest_version": "4",
+  "extension_type": "engine",
+  "vendor_lib_package_names": [
+    "linux-llama-vulkan-vendor-v1"
+  ],
+  "minimum_lmstudio_version": "0.4.0+15",
+  "minimum_llmster_version": "0.0.1+9",
+  "name": "llama.cpp-linux-x86_64-vulkan-avx2-qades"
+}

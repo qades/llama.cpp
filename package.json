@@ -1,0 +1,21 @@
+{
+  "name": "llama.cpp-lmstudio-backend",
+  "version": "2.10.0-qades",
+  "description": "LM Studio backend for llama.cpp with Vulkan acceleration",
+  "main": "index.js",
+  "gypfile": true,
+  "scripts": {
+    "build": "node-gyp rebuild",
+    "build:release": "node-gyp rebuild --release",
+    "install": "node-gyp rebuild"
+  },
+  "dependencies": {
+    "node-addon-api": "^7.0.0",
+    "node-gyp": "^10.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": ["linux"],
+  "cpu": ["x64"]
+}

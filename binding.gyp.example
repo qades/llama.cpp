@@ -1,0 +1,66 @@
+{
+  "targets": [
+    {
+      "target_name": "llm_engine_vulkan",
+      "sources": [
+        "src/node_bindings/llm_engine_wrapper.cpp",
+        "src/node_bindings/node_api_init.cpp"
+      ],
+      "include_dirs": [
+        "<!@(node -p \"require('node-addon-api').include\")",
+        "include",
+        "ggml/include",
+        "common"
+      ],
+      "dependencies": [
+        "<!(node -p \"require('node-addon-api').gyp\")"
+      ],
+      "libraries": [
+        "-L<(PRODUCT_DIR)/../../build/bin",
+        "-lllama",
+        "-lggml",
+        "-lggml-base",
+        "-lggml-cpu",
+        "-lggml-vulkan",
+        "-lcommon",
+        "-lvulkan"
+      ],
+      "cflags!": ["-fno-exceptions"],
+      "cflags_cc!": ["-fno-exceptions"],
+      "cflags": [
+        "-std=c++17",
+        "-mavx2",
+        "-mfma",
+        "-mf16c"
+      ],
+      "defines": [
+        "NAPI_DISABLE_CPP_EXCEPTIONS",
+        "GGML_USE_VULKAN",
+        "GGML_CUDA_DMMV_X=32"
+      ],
+      "conditions": [
+        ["OS=='linux'", {
+          "libraries": [
+            "-Wl,-rpath,\\$$ORIGIN"
+          ]
+        }]
+      ]
+    },
+    {
+      "target_name": "liblmstudio_bindings_vulkan",
+      "sources": [
+        "src/node_bindings/lmstudio_bindings.cpp"
+      ],
+      "include_dirs": [
+        "<!@(node -p \"require('node-addon-api').include\")",
+        "include"
+      ],
+      "dependencies": [
+        "<!(node -p \"require('node-addon-api').gyp\")"
+      ],
+      "cflags!": ["-fno-exceptions"],
+      "cflags_cc!": ["-fno-exceptions"],
+      "defines": ["NAPI_DISABLE_CPP_EXCEPTIONS"]
+    }
+  ]
+}

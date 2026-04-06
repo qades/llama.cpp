@@ -1,0 +1,251 @@
+/**
+ * Example LLM Engine Wrapper for LM Studio
+ * This is a simplified example - actual implementation would be more complex
+ */
+
+#include <napi.h>
+#include <llama.h>
+#include <string>
+#include <memory>
+
+class LLMEngineWrapper : public Napi::ObjectWrap<LLMEngineWrapper> {
+public:
+    static Napi::Object Init(Napi::Env env, Napi::Object exports);
+    LLMEngineWrapper(const Napi::CallbackInfo& info);
+    ~LLMEngineWrapper();
+
+private:
+    static Napi::FunctionReference constructor;
+
+    // Instance methods that LM Studio expects
+    Napi::Value LoadModel(const Napi::CallbackInfo& info);
+    Napi::Value CreateContext(const Napi::CallbackInfo& info);
+    Napi::Value Generate(const Napi::CallbackInfo& info);
+    Napi::Value Tokenize(const Napi::CallbackInfo& info);
+    Napi::Value Detokenize(const Napi::CallbackInfo& info);
+    Napi::Value GetModelInfo(const Napi::CallbackInfo& info);
+    Napi::Value UnloadModel(const Napi::CallbackInfo& info);
+    
+    // Internal state
+    struct llama_model* model_ = nullptr;
+    struct llama_context* ctx_ = nullptr;
+    std::string model_path_;
+    bool loaded_ = false;
+};
+
+Napi::FunctionReference LLMEngineWrapper::constructor;
+
+Napi::Object LLMEngineWrapper::Init(Napi::Env env, Napi::Object exports) {
+    Napi::Function func = DefineClass(env, "LLMEngineWrapper", {
+        InstanceMethod("loadModel", &LLMEngineWrapper::LoadModel),
+        InstanceMethod("createContext", &LLMEngineWrapper::CreateContext),
+        InstanceMethod("generate", &LLMEngineWrapper::Generate),
+        InstanceMethod("tokenize", &LLMEngineWrapper::Tokenize),
+        InstanceMethod("detokenize", &LLMEngineWrapper::Detokenize),
+        InstanceMethod("getModelInfo", &LLMEngineWrapper::GetModelInfo),
+        InstanceMethod("unloadModel", &LLMEngineWrapper::UnloadModel),
+    });
+
+    constructor = Napi::Persistent(func);
+    constructor.SuppressDestruct();
+
+    exports.Set("LLMEngineWrapper", func);
+    return exports;
+}
+
+LLMEngineWrapper::LLMEngineWrapper(const Napi::CallbackInfo& info) 
+    : Napi::ObjectWrap<LLMEngineWrapper>(info) {
+    // Initialize llama.cpp backend
+    llama_backend_init();
+    llama_numa_init(GGML_NUMA_STRATEGY_DISABLED);
+}
+
+LLMEngineWrapper::~LLMEngineWrapper() {
+    if (ctx_) {
+        llama_free(ctx_);
+    }
+    if (model_) {
+        llama_free_model(model_);
+    }
+    llama_backend_free();
+}
+
+Napi::Value LLMEngineWrapper::LoadModel(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    
+    if (info.Length() < 1 || !info[0].IsString()) {
+        Napi::TypeError::New(env, "Expected model path string").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    
+    model_path_ = info[0].As<Napi::String>().Utf8Value();
+    
+    llama_model_params model_params = llama_model_default_params();
+    // Configure for Vulkan
+    model_params.n_gpu_layers = 99; // Offload all layers to GPU
+    model_params.split_mode = LLAMA_SPLIT_MODE_LAYER;
+    
+    model_ = llama_load_model_from_file(model_path_.c_str(), model_params);
+    
+    if (!model_) {
+        Napi::Error::New(env, "Failed to load model: " + model_path_).ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    
+    loaded_ = true;
+    return Napi::Boolean::New(env, true);
+}
+
+Napi::Value LLMEngineWrapper::CreateContext(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    
+    if (!model_) {
+        Napi::Error::New(env, "Model not loaded").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    
+    llama_context_params ctx_params = llama_context_default_params();
+    ctx_params.n_ctx = 4096;  // Default context size
+    ctx_params.n_batch = 512;
+    ctx_params.n_ubatch = 512;
+    
+    if (info.Length() > 0 && info[0].IsObject()) {
+        Napi::Object opts = info[0].As<Napi::Object>();
+        if (opts.Has("contextSize")) {
+            ctx_params.n_ctx = opts.Get("contextSize").As<Napi::Number>().Uint32Value();
+        }
+        if (opts.Has("batchSize")) {
+            ctx_params.n_batch = opts.Get("batchSize").As<Napi::Number>().Uint32Value();
+        }
+    }
+    
+    ctx_ = llama_new_context_with_model(model_, ctx_params);
+    
+    if (!ctx_) {
+        Napi::Error::New(env, "Failed to create context").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    
+    return Napi::Boolean::New(env, true);
+}
+
+Napi::Value LLMEngineWrapper::Generate(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    
+    if (!ctx_) {
+        Napi::Error::New(env, "Context not created").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    
+    // This is a simplified example - real implementation would handle:
+    // - Tokenization
+    // - Batch processing
+    // - Sampling parameters
+    // - Streaming callbacks
+    // - Token generation loop
+    
+    return Napi::String::New(env, "Generated text would go here");
+}
+
+Napi::Value LLMEngineWrapper::Tokenize(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    
+    if (info.Length() < 1 || !info[0].IsString()) {
+        Napi::TypeError::New(env, "Expected text string").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    
+    std::string text = info[0].As<Napi::String>().Utf8Value();
+    
+    if (!model_) {
+        Napi::Error::New(env, "Model not loaded").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    
+    const llama_vocab* vocab = llama_model_get_vocab(model_);
+    int n_tokens = text.length() + 1;  // Upper bound
+    std::vector<llama_token> tokens(n_tokens);
+    
+    n_tokens = llama_tokenize(vocab, text.c_str(), text.length(), 
+                               tokens.data(), n_tokens, true, false);
+    
+    Napi::Array result = Napi::Array::New(env, n_tokens);
+    for (int i = 0; i < n_tokens; i++) {
+        result[i] = Napi::Number::New(env, tokens[i]);
+    }
+    
+    return result;
+}
+
+Napi::Value LLMEngineWrapper::Detokenize(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    
+    if (info.Length() < 1 || !info[0].IsArray()) {
+        Napi::TypeError::New(env, "Expected tokens array").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    
+    Napi::Array tokensArr = info[0].As<Napi::Array>();
+    std::vector<llama_token> tokens;
+    
+    for (uint32_t i = 0; i < tokensArr.Length(); i++) {
+        tokens.push_back(tokensArr.Get(i).As<Napi::Number>().Int32Value());
+    }
+    
+    if (!model_) {
+        Napi::Error::New(env, "Model not loaded").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    
+    const llama_vocab* vocab = llama_model_get_vocab(model_);
+    std::string text;
+    for (llama_token token : tokens) {
+        char buf[256];
+        int len = llama_token_to_piece(vocab, token, buf, sizeof(buf), 0, true);
+        if (len > 0) {
+            text.append(buf, len);
+        }
+    }
+    
+    return Napi::String::New(env, text);
+}
+
+Napi::Value LLMEngineWrapper::GetModelInfo(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    
+    Napi::Object result = Napi::Object::New(env);
+    
+    if (model_) {
+        result.Set("vocabSize", llama_n_vocab(llama_model_get_vocab(model_)));
+        result.Set("contextSize", llama_n_ctx_train(model_));
+        result.Set("embeddingSize", llama_n_embd(model_));
+        result.Set("layerCount", llama_n_layer(model_));
+        result.Set("headCount", llama_n_head(model_));
+    }
+    
+    return result;
+}
+
+Napi::Value LLMEngineWrapper::UnloadModel(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    
+    if (ctx_) {
+        llama_free(ctx_);
+        ctx_ = nullptr;
+    }
+    if (model_) {
+        llama_free_model(model_);
+        model_ = nullptr;
+    }
+    loaded_ = false;
+    
+    return Napi::Boolean::New(env, true);
+}
+
+// Export initialization function
+Napi::Object Init(Napi::Env env, Napi::Object exports) {
+    LLMEngineWrapper::Init(env, exports);
+    return exports;
+}
+
+NODE_API_MODULE(llm_engine_vulkan, Init)
